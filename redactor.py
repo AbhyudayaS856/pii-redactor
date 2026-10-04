@@ -1,6 +1,6 @@
 """
-redactor.py - reads text from an image with OCR, finds PII, blacks it out,
-and hides faces using a deep-learning face detector (YuNet).
+redactor.py - reads text from an image with OCR, finds PII (rules + a
+fine-tuned NER model for names/addresses), blacks it out, and hides faces using a deep-learning face detector (YuNet).
 
 Usage:  python redactor.py sample.png
 Output: sample_redacted.png
@@ -12,6 +12,7 @@ import cv2
 import easyocr
 
 from detectors import find_pii, mask
+from ner import find_names_addresses
 
 FACE_MODEL = os.path.join("models", "face_detection_yunet_2023mar.onnx")
 
@@ -100,7 +101,17 @@ def redact_image(image, pad=4):
                 "confidence": round(float(conf), 2),
             })
 
-    # 2. Faces
+        # 2. Names and addresses, found by our fine-tuned NER model
+        for label, s, e, value, ner_conf in find_names_addresses(text):
+            x1, y1, x2, y2 = span_to_box(bbox, text, s, e)
+            cv2.rectangle(out, (x1 - pad, y1 - pad), (x2 + pad, y2 + pad), (0, 0, 0), -1)
+            findings.append({
+                "type": label,
+                "value (masked)": f"[hidden, {len(value.split())} words]",
+                "confidence": round(ner_conf, 2),
+            })
+
+    # 3. Faces
     hide_faces(image, out, findings)
 
     return out, findings
