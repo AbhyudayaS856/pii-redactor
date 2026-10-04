@@ -1,9 +1,11 @@
 """
-redactor.py - reads text from an image with OCR, finds PII, blacks it out.
+redactor.py - reads text from an image with OCR, finds PII, blacks it out,
+and hides faces using a deep-learning face detector (YuNet).
 
 Usage:  python redactor.py sample.png
 Output: sample_redacted.png
 """
+import os
 import sys
 
 import cv2
@@ -11,7 +13,10 @@ import easyocr
 
 from detectors import find_pii, mask
 
+FACE_MODEL = os.path.join("models", "face_detection_yunet_2023mar.onnx")
+
 _reader = None
+_face_detector = None
 
 
 def get_reader():
@@ -20,6 +25,49 @@ def get_reader():
     if _reader is None:
         _reader = easyocr.Reader(["en"], gpu=False)
     return _reader
+
+
+def get_face_detector():
+    """Load the YuNet face detection model once."""
+    global _face_detector
+    if _face_detector is None:
+        if not os.path.exists(FACE_MODEL):
+            raise FileNotFoundError(
+                f"Face model not found at {FACE_MODEL}. "
+                "Download it into the 'models' folder first."
+            )
+        # 0.7 = only accept detections the model is at least 70% sure about
+        _face_detector = cv2.FaceDetectorYN.create(FACE_MODEL, "", (320, 320), 0.7)
+    return _face_detector
+
+
+def hide_faces(image, out, findings):
+    """
+    Find faces and PIXELATE them. Pixelation is safer than a light blur,
+    because blurred faces can sometimes be partly recovered.
+    """
+    h, w = image.shape[:2]
+    detector = get_face_detector()
+    detector.setInputSize((w, h))
+    _, faces = detector.detect(image)
+    if faces is None:
+        return
+
+    for f in faces:
+        x, y, fw, fh = [int(v) for v in f[:4]]
+        pad = int(0.25 * fh)  # cover hair and chin too, not just the face
+        x1, y1 = max(x - pad, 0), max(y - pad, 0)
+        x2, y2 = min(x + fw + pad, w), min(y + fh + pad, h)
+        region = out[y1:y2, x1:x2]
+        if region.size == 0:
+            continue
+        tiny = cv2.resize(region, (8, 8), interpolation=cv2.INTER_LINEAR)
+        out[y1:y2, x1:x2] = cv2.resize(tiny, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)
+        findings.append({
+            "type": "FACE",
+            "value (masked)": "[pixelated]",
+            "confidence": round(float(f[14]), 2),
+        })
 
 
 def span_to_box(bbox, text, start, end):
@@ -40,6 +88,8 @@ def span_to_box(bbox, text, start, end):
 def redact_image(image, pad=4):
     out = image.copy()
     findings = []
+
+    # 1. Text-based PII (Aadhaar, PAN, phone, ...)
     for bbox, text, conf in get_reader().readtext(image):
         for label, s, e, value in find_pii(text):
             x1, y1, x2, y2 = span_to_box(bbox, text, s, e)
@@ -47,8 +97,12 @@ def redact_image(image, pad=4):
             findings.append({
                 "type": label,
                 "value (masked)": mask(value),
-                "ocr confidence": round(float(conf), 2),
+                "confidence": round(float(conf), 2),
             })
+
+    # 2. Faces
+    hide_faces(image, out, findings)
+
     return out, findings
 
 

@@ -9,7 +9,7 @@ from redactor import redact_image
 
 st.set_page_config(page_title="PII Redactor", page_icon="🔒", layout="wide")
 st.title("🔒 PII Redactor")
-st.caption("Detects and hides Aadhaar, PAN, phone numbers, emails and more. Runs fully offline.")
+st.caption("Detects and hides Aadhaar, PAN, phone numbers, emails and faces. Runs fully offline.")
 
 uploaded = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"])
 

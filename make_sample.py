@@ -2,6 +2,7 @@
 make_sample.py - creates a FAKE ID-card image for testing.
 Never test with your real Aadhaar/PAN. Run: python make_sample.py
 """
+import os
 import random
 
 from PIL import Image, ImageDraw, ImageFont
@@ -45,6 +46,11 @@ y = 30
 for line in lines:
     draw.text((40, y), line, fill="black", font=font)
     y += 60
+
+# Paste the AI-generated face onto the card, like an ID photo
+if os.path.exists("face.jpg"):
+       face = Image.open("face.jpg").convert("RGB").resize((200, 200))
+       img.paste(face, (660, 110))
 
 img.save("sample.png")
 print("Saved sample.png with:")
